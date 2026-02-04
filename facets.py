@@ -12,6 +12,9 @@ import os
 import pathlib
 import scipy
 import sklearn
+import textual
+import textual.app
+import textual.widgets
 import tiktoken
 
 from git import Repo
@@ -117,6 +120,9 @@ async def embed(facets: Facets, repository: str) -> Cluster:
 
 def cluster(input: Cluster) -> List[Cluster]:
     print("[+] Clustering embeddings")
+
+    if len(input.embeds) < 7:
+        return []
 
     entries, embeddings = zip(*((embed.entry, embed.embedding) for embed in input.embeds))
 
@@ -280,7 +286,7 @@ def render_cluster(cluster):
 
     return "\n".join(sorted(entries))
 
-async def label_cluster(facets: Facets, clusters: List[Cluster]) -> List[str]:
+async def label_clusters(facets: Facets, clusters: List[Cluster]) -> List[str]:
     print("[+] Labeling clusters")
 
     async def label(my_index, my_cluster):
@@ -307,7 +313,41 @@ async def label_cluster(facets: Facets, clusters: List[Cluster]) -> List[str]:
 
     return results
 
-async def main():
+@dataclasses.dataclass(frozen=True)
+class Tree:
+    label: str
+    children: List["Tree"]
+
+async def tree(facets: Facets, label: str, c: Cluster):
+    files = [ Tree(embed.entry, []) for embed in c.embeds ]
+
+    sub_clusters = cluster(c)
+
+    labels = await label_clusters(facets, sub_clusters)
+
+    children = await asyncio.gather(*(tree(facets, label, sub_cluster) for label, sub_cluster in zip(labels, sub_clusters)))
+
+    children.append(Tree("[Files]", files))
+
+    return Tree(label, children)
+
+class UI(textual.app.App):
+    def __init__(self, tree_):
+        super().__init__()
+        self.tree_ = tree_
+
+    async def on_mount(self):
+        self.treeview = textual.widgets.Tree(self.tree_.label)
+        def loop(node, children):
+            for child in children:
+                n = node.add(child.label)
+                loop(n, child.children)
+
+        loop(self.treeview.root, self.tree_.children)
+
+        self.mount(self.treeview)
+
+def main():
     parser = argparse.ArgumentParser(
         prog='facets',
         description='Cluster documents by semantic facets',
@@ -318,21 +358,10 @@ async def main():
 
     facets = initialize()
 
-    initial_cluster = await embed(facets, arguments.repository)
+    initial_cluster = asyncio.run(embed(facets, arguments.repository))
 
-    sub_clusters = cluster(initial_cluster)
+    tree_ = asyncio.run(tree(facets, arguments.repository, initial_cluster))
 
-    labels = await label_cluster(facets, sub_clusters)
+    UI(tree_).run()
 
-    print("")
-
-    for label, c in zip(labels, sub_clusters):
-        print(f"# {label}")
-
-        print("")
-
-        print(render_cluster(c))
-
-        print("")
-
-asyncio.run(main())
+main()

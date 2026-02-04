@@ -13,6 +13,7 @@
                 python.gitpython
                 python.openai
                 python.scikit-learn
+                python.textual
                 python.tiktoken
               ]);
 
