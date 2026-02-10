@@ -357,10 +357,17 @@ class UI(textual.app.App):
             for child in children:
                 prefix = os.path.commonprefix(child.files)
                 suffix = os.path.commonprefix([ file[len(prefix):][::-1] for file in child.files ])[::-1]
-                if any([ file[len(prefix):-len(suffix)] for file in child.files ]):
-                    star = "*"
+
+                if suffix:
+                    if any([ file[len(prefix):-len(suffix)] for file in child.files ]):
+                        star = "*"
+                    else:
+                        star = ""
                 else:
-                    star = ""
+                    if any([ file[len(prefix):] for file in child.files ]):
+                        star = "*"
+                    else:
+                        star = ""
 
                 if prefix:
                     if suffix:
