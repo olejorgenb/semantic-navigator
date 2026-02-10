@@ -352,7 +352,7 @@ async def label_nodes(facets: Facets, c: Cluster) -> list[Tree]:
 
             other = "\n\n".join([ render_trees(trees) for trees in prefix + suffix ])
 
-            input = f"Describe in a few words what distinguish this cluster:\n\n{here}\n\n… from these other clusters:\n\n{other}\n\nYour response in its entirety should be a succinct description (≈3 words) without any explanation/context/rationale because the full text of what you say will be used as the file label without any trimming."
+            input = f"Summarize this cluster:\n\n{here}\n\n… in a way that distinguishes the summarized cluster from these other clusters:\n\n{other}\n\nYour response in its entirety should be a succinct description (≈3 words) without any explanation/context/rationale because the full text of what you say will be used as the file label without any trimming."
 
             response = await facets.openai_client.responses.create(
                 model = facets.completion_model,
