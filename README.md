@@ -98,3 +98,5 @@ Otherwise if you don't use `direnv` you can enter the virtual environment using:
 ```ShellSession
 $ nix develop
 ```
+
+[^1]: OpenAI advertises `gpt-5-mini` as faster than `gpt-5*` models, but I see significantly worse latency for completions requests using `gpt-5-mini` which  matters more for this project's purposes.  The completions model is only being used to generate short labels where inference throughput does not matter that much.                                                                          
