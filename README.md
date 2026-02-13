@@ -7,8 +7,9 @@ https://github.com/user-attachments/assets/95f04087-453d-413e-8661-5bcd7dce4062
 
 ## Setup
 
-Currently I've only built and run this script using Nix.  However, you can feel free to
-submit pull requests for other installation instructions if you've vetted them.
+Currently I've only built and run this script using uv and Nix.  However, you
+can feel free to submit pull requests for other installation instructions if
+you've vetted them.
 
 No matter what you do you will need to provide an `OPENAI_API_KEY` environment variable in
 order to use this script:
@@ -17,7 +18,23 @@ order to use this script:
 $ export OPENAI_API_KEY="$(< ./path/to/openai.key)"
 ```
 
-Once you do that you can run the script in a single Nix command, like this:
+### uv
+
+You can run the script in a single command, like this:
+
+```ShellSession
+$ uvx git+https://github.com/Gabriella439/semantic-navigator ./path/to/repository
+```
+
+… or you can install the script:
+
+```ShellSession
+$ uv tool install git+https://github.com/Gabriella439/semantic-navigator
+```
+
+### Nix
+
+You can run the script in a single command, like this:
 
 ```ShellSession
 $ nix run github:Gabriella439/semantic-navigator -- ./path/to/repository
@@ -47,7 +64,7 @@ using `gpt-5-mini` by default to label clusters because `gpt-5-mini` has worse
 latency[^1], but is cheaper and still generally gives good results.  If you're
 willing to pay 7× as much to use a snappier and better model you can do this:
 
-```bash
+```ShellSession
 $ semantic-navigator --completion-model gpt-5.2 ./path/to/repository
 ```
 
@@ -89,14 +106,21 @@ general file indexer.
 
 ## Development
 
-If you use Nix and `direnv` this project provides a `.envrc` which automatically provides
-a virtual environment with all the necessary dependencies (both Python and non-Python
-dependencies).
+If you use Nix and `direnv` this project provides a `.envrc` which
+automatically provides a virtual environment with all the necessary
+dependencies (both Python and non-Python dependencies).
 
 Otherwise if you don't use `direnv` you can enter the virtual environment using:
 
 ```ShellSession
 $ nix develop
+```
+
+… and you can test any of the setup commands with a local checkout by replacing
+`github:Gabriella439/semantic-navigator` with `.`, like this:
+
+```ShellSession
+$ nix run . -- ./path/to/repository
 ```
 
 [^1]: OpenAI advertises `gpt-5-mini` as faster than `gpt-5*` models, but I see significantly worse latency for completions requests using `gpt-5-mini` which  matters more for this project's purposes.  The completions model is only being used to generate short labels where inference throughput does not matter that much.                                                                          
