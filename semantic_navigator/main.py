@@ -396,6 +396,9 @@ class Label(BaseModel):
 class Labels(BaseModel):
     labels: list[Label]
 
+def to_files(trees: list[Tree]) -> list[str]:
+    return [ file for tree in trees for file in tree.files ]
+
 async def label_nodes(facets: Facets, c: Cluster, depth: int) -> list[Tree]:
     children = cluster(c)
 
@@ -454,13 +457,6 @@ async def label_nodes(facets: Facets, c: Cluster, depth: int) -> list[Tree]:
 
         # assert len(response.output_parsed.labels) == len(children)
 
-        def to_files(trees: list[Tree]) -> list[str]:
-            return [
-                file
-                for tree in trees
-                for file in tree.files
-            ]
-
         return [
             Tree(f"{to_pattern(to_files(trees))}{label.label}", to_files(trees), trees)
             for label, trees in zip(response.output_parsed.labels, treess)
@@ -469,9 +465,7 @@ async def label_nodes(facets: Facets, c: Cluster, depth: int) -> list[Tree]:
 async def tree(facets: Facets, label: str, c: Cluster) -> Tree:
     children = await label_nodes(facets, c, 0)
 
-    files = [ file for child in children for file in child.files ]
-
-    return Tree(label, files, children)
+    return Tree(label, to_files(children), children)
 
 class UI(textual.app.App):
     def __init__(self, tree_):
