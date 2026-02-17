@@ -33,6 +33,8 @@ $ uvx git+https://github.com/Gabriella439/semantic-navigator ./path/to/repositor
 
 ```ShellSession
 $ uv tool install git+https://github.com/Gabriella439/semantic-navigator
+
+$ semantic-navigator ./path/to/repository
 ```
 
 ### Nix
@@ -56,7 +58,7 @@ $ ./result/bin/semantic-navigator ./path/to/repository
 ```ShellSession
 $ nix profile install github:Gabriella439/semantic-navigator
 
-$ semantic-navigator ./path/to/repostiory
+$ semantic-navigator ./path/to/repository
 ```
 
 ## Usage
