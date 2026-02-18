@@ -96,11 +96,13 @@ async def embed(facets: Facets, directory: str) -> Cluster:
                 if entry.is_file(follow_symlinks = False):
                     yield entry.path
 
+    semaphore = asyncio.Semaphore(64)
+
     async def read(path) -> list[tuple[str, str]]:
         try:
             absolute_path = os.path.join(directory, path)
 
-            async with aiofiles.open(absolute_path, "rb") as handle:
+            async with semaphore, aiofiles.open(absolute_path, "rb") as handle:
                 prefix = f"{path}:\n\n"
 
                 bytestring = await handle.read()
