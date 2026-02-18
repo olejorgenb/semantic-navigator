@@ -21,7 +21,7 @@ from numpy import float32
 from numpy.typing import NDArray
 from pathlib import PurePath
 from pydantic import BaseModel
-from openai import AsyncOpenAI
+from openai import AsyncOpenAI, RateLimitError
 from sklearn.neighbors import NearestNeighbors
 from tiktoken import Encoding
 from typing import Iterable
@@ -155,14 +155,22 @@ async def embed(facets: Facets, directory: str) -> Cluster:
     max_embeds = math.floor(max_tokens_per_batch_embed / max_tokens_per_embed)
 
     async def embed_batch(input) -> list[NDArray[float32]]:
-        response = await facets.openai_client.embeddings.create(
-            model = facets.embedding_model,
-            input = input
-        )
+        delay = 1.0
 
-        return [
-            numpy.asarray(datum.embedding, float32) for datum in response.data
-        ]
+        while True:
+            try:
+                response = await facets.openai_client.embeddings.create(
+                    model = facets.embedding_model,
+                    input = input
+                )
+
+                return [
+                    numpy.asarray(datum.embedding, float32) for datum in response.data
+                ]
+
+            except RateLimitError:
+                await asyncio.sleep(delay)
+                delay = min(delay * 2, 60.0)
 
     tasks = tqdm_asyncio.gather(
         *(embed_batch(input) for input in batched(contents, max_embeds)),
@@ -402,6 +410,21 @@ class Labels(BaseModel):
 def to_files(trees: list[Tree]) -> list[str]:
     return [ file for tree in trees for file in tree.files ]
 
+async def parse_with_retry(facets: Facets, input: str, text_format):
+    delay = 1.0
+
+    while True:
+        try:
+            return await facets.openai_client.responses.parse(
+                model = facets.completion_model,
+                input = input,
+                text_format = text_format
+            )
+
+        except RateLimitError:
+            await asyncio.sleep(delay)
+            delay = min(delay * 2, 60.0)
+
 async def label_nodes(facets: Facets, c: Cluster, depth: int) -> list[Tree]:
     children = cluster(c)
 
@@ -413,11 +436,7 @@ async def label_nodes(facets: Facets, c: Cluster, depth: int) -> list[Tree]:
 
         input = f"Label each file in 3 to 7 words.  Don't include file path/names in descriptions.\n\n{rendered_embeds}"
 
-        response = await facets.openai_client.responses.parse(
-            model = facets.completion_model,
-            input = input,
-            text_format = Labels
-        )
+        response = await parse_with_retry(facets, input, Labels)
 
         assert response.output_parsed is not None
 
@@ -450,11 +469,7 @@ async def label_nodes(facets: Facets, c: Cluster, depth: int) -> list[Tree]:
 
         input = f"Label each cluster in 2 words.  Don't include file path/names in labels.\n\n{rendered_clusters}"
 
-        response = await facets.openai_client.responses.parse(
-            model = facets.completion_model,
-            input = input,
-            text_format = Labels
-        )
+        response = await parse_with_retry(facets, input, Labels)
 
         assert response.output_parsed is not None
 
