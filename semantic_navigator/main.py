@@ -2,7 +2,9 @@ import aiofiles
 import argparse
 import asyncio
 import collections
+import hashlib
 import itertools
+import json
 import math
 import numpy
 import os
@@ -19,7 +21,7 @@ from dulwich.repo import Repo
 from itertools import batched, chain
 from numpy import float32
 from numpy.typing import NDArray
-from pathlib import PurePath
+from pathlib import Path, PurePath
 from pydantic import BaseModel
 from openai import AsyncOpenAI, RateLimitError
 from sklearn.neighbors import NearestNeighbors
@@ -36,8 +38,9 @@ class Facets:
     completion_model: str
     embedding_encoding: Encoding
     completion_encoding: Encoding
+    cache_dir: str | None
 
-def initialize(completion_model: str, embedding_model: str) -> Facets:
+def initialize(completion_model: str, embedding_model: str, cache_dir: str | None) -> Facets:
     openai_client = AsyncOpenAI()
 
     embedding_model = embedding_model
@@ -56,7 +59,8 @@ def initialize(completion_model: str, embedding_model: str) -> Facets:
         embedding_model = embedding_model,
         completion_model = completion_model,
         embedding_encoding = embedding_encoding,
-        completion_encoding = completion_encoding
+        completion_encoding = completion_encoding,
+        cache_dir = cache_dir
     )
 
 @dataclass(frozen = True)
@@ -154,6 +158,26 @@ async def embed(facets: Facets, directory: str) -> Cluster:
 
     max_embeds = math.floor(max_tokens_per_batch_embed / max_tokens_per_embed)
 
+    keys = [
+        hashlib.sha256(f"{facets.embedding_model}\n{c}".encode()).hexdigest()
+        for c in contents
+    ]
+
+    embeddings = [None] * len(contents)
+    miss_indices = []
+
+    if facets.cache_dir:
+        for i, key in enumerate(keys):
+            path = os.path.join(facets.cache_dir, f"{key}.npy")
+            if os.path.exists(path):
+                embeddings[i] = numpy.load(path)
+            else:
+                miss_indices.append(i)
+    else:
+        miss_indices = list(range(len(contents)))
+
+    miss_contents = [contents[i] for i in miss_indices]
+
     async def embed_batch(input) -> list[NDArray[float32]]:
         delay = 1.0
 
@@ -172,14 +196,24 @@ async def embed(facets: Facets, directory: str) -> Cluster:
                 await asyncio.sleep(delay)
                 delay = min(delay * 2, 60.0)
 
-    tasks = tqdm_asyncio.gather(
-        *(embed_batch(input) for input in batched(contents, max_embeds)),
-        desc = "Embedding contents",
-        unit = "batch",
-        leave = False
-    )
+    if miss_contents:
+        tasks = tqdm_asyncio.gather(
+            *(embed_batch(batch) for batch in batched(miss_contents, max_embeds)),
+            desc = "Embedding contents",
+            unit = "batch",
+            leave = False
+        )
+        fresh = list(chain.from_iterable(await tasks))
+    else:
+        fresh = []
 
-    embeddings = list(chain.from_iterable(await tasks))
+    if facets.cache_dir:
+        os.makedirs(facets.cache_dir, exist_ok=True)
+
+    for i, embedding in zip(miss_indices, fresh):
+        embeddings[i] = embedding
+        if facets.cache_dir:
+            numpy.save(os.path.join(facets.cache_dir, f"{keys[i]}.npy"), embedding)
 
     embeds = [
         Embed(path, content, embedding)
@@ -485,6 +519,31 @@ async def tree(facets: Facets, label: str, c: Cluster) -> Tree:
 
     return Tree(label, to_files(children), children)
 
+def tree_to_dict(t: Tree) -> dict:
+    return {
+        "label": t.label,
+        "files": t.files,
+        "children": [tree_to_dict(child) for child in t.children],
+    }
+
+def tree_from_dict(d: dict) -> Tree:
+    return Tree(
+        label=d["label"],
+        files=d["files"],
+        children=[tree_from_dict(child) for child in d["children"]],
+    )
+
+def default_result_path(directory: str) -> str | None:
+    try:
+        repo = Repo.discover(directory)
+        head_sha = repo.head().decode("ascii")
+        project_name = os.path.basename(os.path.abspath(directory))
+        return str(
+            Path.home() / ".cache" / "semantic-navigator" / project_name / f"{head_sha}.json"
+        )
+    except (NotGitRepository, KeyError):
+        return None
+
 class UI(textual.app.App):
     def __init__(self, tree_):
         super().__init__()
@@ -517,18 +576,32 @@ def main():
     parser.add_argument("repository")
     parser.add_argument("--completion-model", default = "gpt-5-mini")
     parser.add_argument("--embedding-model", default = "text-embedding-3-large")
+    parser.add_argument(
+        "--cache-dir",
+        default = str(Path.home() / ".cache" / "semantic-navigator"),
+    )
+    parser.add_argument("--result-file", default=None)
     arguments = parser.parse_args()
 
-    facets = initialize(arguments.completion_model, arguments.embedding_model)
+    result_path = arguments.result_file or default_result_path(arguments.repository)
 
-    async def async_tasks():
-        initial_cluster = await embed(facets, arguments.repository)
+    if result_path and os.path.exists(result_path):
+        with open(result_path) as f:
+            tree_ = tree_from_dict(json.load(f))
+    else:
+        facets = initialize(arguments.completion_model, arguments.embedding_model, arguments.cache_dir)
 
-        tree_ = await tree(facets, arguments.repository, initial_cluster)
+        async def async_tasks():
+            initial_cluster = await embed(facets, arguments.repository)
+            return await tree(facets, arguments.repository, initial_cluster)
 
-        return tree_
+        tree_ = asyncio.run(async_tasks())
 
-    tree_ = asyncio.run(async_tasks())
+        if result_path:
+            os.makedirs(os.path.dirname(result_path), exist_ok=True)
+            with open(result_path, "w") as f:
+                json.dump(tree_to_dict(tree_), f)
+            print(f"Saved result in {result_path}", file=sys.stderr, flush=True)
 
     UI(tree_).run()
 
